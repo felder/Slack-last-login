@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import csv
+import json
 from time import sleep
 from datetime import datetime
 
@@ -13,7 +14,8 @@ from tqdm import trange
 def write_dicts_to_csv(filename, dictionaries):
     field_names = dictionaries[0].keys()
     with open(filename, 'w') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=field_names,
+        writer = csv.DictWriter(csvfile,
+                                fieldnames=field_names,
                                 quoting=csv.QUOTE_NONNUMERIC)
         writer.writeheader()
         for dictionary in dictionaries:
@@ -23,18 +25,18 @@ def write_dicts_to_csv(filename, dictionaries):
 def get_access_logs():
     all_access_logs = []
     url = 'https://slack.com/api/team.accessLogs'
-    params = {'token': token, 'count': 1000}  # 1000 logs per page is maximum
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {'count': 1000}  # 1000 logs per page is maximum
 
     print(' Downloading pages …')
     for page in trange(1, 101):  # 100 pages is maximum
         params['page'] = page
-        res = requests.get(url, params=params)
+        res = requests.get(url, headers=headers, params=params)
         res_data = res.json()
 
         if not res_data['ok']:
-            raise ValueError(f'Something went wrong.'
-                             'URL: {res.url}'
-                             'Error: {res_data["error"]}')
+            raise ValueError('Something went wrong.', res.url,
+                             res_data["error"])
 
         all_access_logs.extend(res_data['logins'])
 
@@ -67,24 +69,27 @@ def get_last_logins(access_logs):
         user_dicts.append({
             'user_id': user_id,
             'user_name': user_name,
+            'deleted': False,
+            'is_bot': False,
+            'email': "Not available",
             'last_login': last_login_dtm.isoformat(),
-            'inactive_days': inactive_days})
+            'inactive_days': inactive_days
+        })
 
     return user_dicts
 
 
 def get_all_members():
     url = 'https://slack.com/api/users.list'
-    params = {'token': token}  # 1000 logs per page is maximum
-
+    headers = {"Authorization": f"Bearer {token}"}
+    #params = {'limit': 10}
     print(' Downloading members …')
-    res = requests.get(url, params=params)
+    res = requests.get(url, headers=headers)
     res_data = res.json()
+    #print(json.dumps(res_data, indent=4, sort_keys=True))
 
     if not res_data['ok']:
-        raise ValueError(f'Something went wrong.'
-                            'URL: {res.url}'
-                            'Error: {res_data["error"]}')
+        raise ValueError('Something went wrong.', res.url, res_data["error"])
 
     return res_data["members"]
 
@@ -95,12 +100,42 @@ def add_missing_members(last_logins, all_members):
 
     for member in all_members:
         if member["id"] in existing_ids:
+            if member["deleted"] or member["is_bot"]:
+                for user in last_logins:
+                    if user["user_id"] == member["id"]:
+                        last_logins.remove(user)
+            else:
+                for user in last_logins:
+                    if user["user_id"] == member["id"]:
+                        x = last_logins.index(user)
+                        #print(json.dumps(member, indent=4, sort_keys=True))
+                        if "email" in member["profile"]:
+                            last_logins[x]["email"] = member["profile"][
+                                "email"]
             continue
-        last_logins.append({
-            'user_id': member["id"],
-            'user_name': member["name"],
-            'last_login': "Not available",
-            'inactive_days': "Not available"})
+        elif member["deleted"] or member["is_bot"]:
+            continue
+        else:
+            if "email" in member["profile"]:
+                last_logins.append({
+                    'user_id': member["id"],
+                    'user_name': member["name"],
+                    'deleted': member["deleted"],
+                    'is_bot': member["is_bot"],
+                    'email': member["profile"]["email"],
+                    'last_login': "unknown",
+                    'inactive_days': "Not available"
+                })
+            else:
+                last_logins.append({
+                    'user_id': member["id"],
+                    'user_name': member["name"],
+                    'deleted': member["deleted"],
+                    'is_bot': member["is_bot"],
+                    'email': "Not available",
+                    'last_login': "unknown",
+                    'inactive_days': "Not available"
+                })
 
 
 def main():
