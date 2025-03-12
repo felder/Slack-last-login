@@ -118,10 +118,11 @@ def main():
   
   print("Downloading access logs from now until", earliest_date, '…', file=sys.stderr)
   members = get_last_logins(members, earliest_epoch)
-  print("Writing last login info to CSV …", file=sys.stderr)
   
+  print("Writing last login info to CSV …", file=sys.stderr)
   formatted_members = format_members(members)
   write_dicts_to_csv('last_logins.csv', formatted_members)
+  
   print("  Done!", file=sys.stderr)
 
 
